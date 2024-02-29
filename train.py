@@ -90,7 +90,6 @@ loss_fn = F.cross_entropy
 start_time = time.time()
 for iter in range(args.max_iters):
 
-    # every once in a while evaluate the loss on train and val sets
     if iter % args.eval_interval == 0 or iter == args.max_iters - 1:
         losses = estimate_loss()
         print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
@@ -98,10 +97,8 @@ for iter in range(args.max_iters):
         print(f'Elapsed time: {end_time - start_time}')
         start_time = end_time
 
-    # sample a batch of data
     xb, yb = get_batch('train')
 
-    # evaluate the loss
     logits= model(xb)
     B, T, C = logits.shape
     logits = logits.view(B*T, C)
