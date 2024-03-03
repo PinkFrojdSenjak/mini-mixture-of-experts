@@ -1,5 +1,5 @@
 import configparser
-
+from typing import Dict, List
 
 class Args:
     """
@@ -68,11 +68,45 @@ class Args:
         return cls._instance
 
 
+class Tokenizer:
+    """
+    A wrapper class providing interface for 
+    character level tokenization.
+    """
+    vocab_size: int
+    stoi: Dict[str, int]
+    itos: Dict[int, str]
+
+    def __init__(self) -> None:
+        args = Args.get_default_args()
+        self.vocab_size = args.vocab_size
+
+        with open(args.dataset_path, encoding='utf-8') as f:
+            s = f.read()
+
+        chars = sorted(list(set(s)))
+
+        self.stoi = { ch:i for i,ch in enumerate(chars) }
+        self.itos = { i:ch for i,ch in enumerate(chars) }
+
+    def encode(self, input_str: str) -> List[int]:
+        """
+        Encodes an input string in a list of tokens.
+        """
+        return [self.stoi[c] for c in input_str]
+    
+    def decode(self, tokens: List[int]) -> str:
+        """
+        Decodes a list of tokens back to the string format.
+        """
+        return ''.join([self.itos[i] for i in tokens]) 
+
+
 if __name__ == "__main__":
-    args = Args.get_default_args()
+    
+    tokenizer = Tokenizer()
 
-    pass
-
+    print(tokenizer.decode(tokenizer.encode('Mixture of experts')))
 
 
 
