@@ -1,5 +1,9 @@
+import os
+import torch
+from torch import nn
 import configparser
 from typing import Dict, List
+
 
 class Args:
     """
@@ -77,8 +81,7 @@ class Tokenizer:
     stoi: Dict[str, int]
     itos: Dict[int, str]
 
-    def __init__(self) -> None:
-        args = Args.get_default_args()
+    def __init__(self, args: Args) -> None:
         self.vocab_size = args.vocab_size
 
         with open(args.dataset_path, encoding='utf-8') as f:
@@ -100,6 +103,21 @@ class Tokenizer:
         Decodes a list of tokens back to the string format.
         """
         return ''.join([self.itos[i] for i in tokens]) 
+    
+
+def get_latest_checkoint(model: nn.Module, args: Args):
+    start_iter = 0
+    l = os.listdir(args.models_dir)
+    nums = [int(name[6:-3]) for name in l if name.startswith('model')] # hack to extract the iteration counts for models
+    if nums:
+        start_iter = max(nums)
+        weights = torch.load(f"{args.models_dir}/model-{start_iter}.pt")
+        model.load_state_dict(weights)
+        print(f'Loaded latest checkpoint at iteration {start_iter}')
+    else:
+        print('No checkpoints to load, starting from iter 0')
+        
+    return model, start_iter
 
 
 if __name__ == "__main__":

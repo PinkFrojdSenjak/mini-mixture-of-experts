@@ -6,31 +6,19 @@ from torch.utils.data import Dataset
 from torch.utils.data.dataloader import DataLoader
 
 from model import MOE
-from utils import Args
+from utils import Args, Tokenizer
 import time
 import os 
 
 
-dataset_path = 'data/tiny_shakespeare.txt'
-models_dir = 'models/'
+args = Args.get_default_args()
+tokenizer = Tokenizer(args)
 
-with open(dataset_path, encoding='utf-8') as f:
+with open(args.dataset_path, encoding='utf-8') as f:
     s = f.read()
 
-chars = sorted(list(set(s)))
-vocab_size = len(chars)
 
-stoi = { ch:i for i,ch in enumerate(chars) }
-itos = { i:ch for i,ch in enumerate(chars) }
-
-encode = lambda s: [stoi[c] for c in s]
-decode = lambda l: ''.join([itos[i] for i in l]) 
-
-
-args = Args.get_default_args()
-
-
-data = encode(s)
+data = tokenizer.encode(s)
 data = torch.tensor(data, dtype=torch.long)
 
 n = int((1 - args.test_size) * len(data))
