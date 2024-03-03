@@ -34,6 +34,7 @@ class CausalSelfAttention(nn.Module):
         self.n_embd = n_embd
         self.block_size = block_size
         self.pos_encoder = nn.Embedding(block_size, n_embd)
+        self.device = device
 
         assert self.n_embd % self.n_head == 0
 
@@ -61,7 +62,7 @@ class CausalSelfAttention(nn.Module):
         """
             
         B, T, C = x.size()
-        pos = torch.arange(0, T, dtype=torch.long, device=device).unsqueeze(0)
+        pos = torch.arange(0, T, dtype=torch.long, device=self.device).unsqueeze(0)
         tok_emb = self.pos_encoder(pos)
 
         # Query, Key, Value
