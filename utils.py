@@ -3,11 +3,14 @@ from dataclasses import dataclass
 @dataclass
 class Args:
     dataset_path: str
+    models_dir: str
     batch_size: int
     learning_rate: float
     max_iters: int
     eval_iters: int
     eval_interval: int
+    model_save_interval: int
+    load_checkpoint: bool
     test_size: float
     n_head: int
     n_embd: int
