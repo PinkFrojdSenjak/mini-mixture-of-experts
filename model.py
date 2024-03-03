@@ -95,26 +95,11 @@ class CausalSelfAttention(nn.Module):
         return y
     
 
-class FeedForward(nn.Module):
-    def __init__(self, input_dim: int, hidden_dim: int):
-        super().__init__()
-        self.w1 = nn.Linear(input_dim, hidden_dim, bias=False)
-        self.w2 = nn.Linear(hidden_dim, input_dim, bias=False)
-        self.w3 = nn.Linear(input_dim, hidden_dim, bias=False)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = nn.functional.silu(self.w1(x)) * self.w3(x)
-        return self.w2(x)
-    
-    
-
 class MoeLayer(nn.Module):
     def __init__(self,
         num_experts: int,
         num_experts_per_tok: int,
-        n_embd: int,
-        ff_hidden_dim: int,
-    ):
+        n_embd: int):
         
         super().__init__()
         assert num_experts > 0
@@ -128,9 +113,10 @@ class MoeLayer(nn.Module):
         self.gate = nn.Linear(n_embd, num_experts, bias=False)
 
     def forward(self, inputs: torch.Tensor):
-        inputs_squashed = inputs.view(-1, inputs.shape[-1])
+        B, T, C = inputs.shape
+        inputs = inputs.view(B*T, C)
 
-        gate_logits = self.gate(inputs_squashed)
+        gate_logits = self.gate(inputs)
 
         weights, selected_experts = torch.topk(
             gate_logits, self.num_experts_per_tok
@@ -140,13 +126,14 @@ class MoeLayer(nn.Module):
             dim=1,
             dtype=torch.float,
         ).type_as(inputs)
-        results = torch.zeros_like(inputs_squashed)
+
+        results = torch.zeros_like(inputs)
         for i, expert in enumerate(self.experts):
             batch_idx, nth_expert = torch.where(selected_experts == i)
             results[batch_idx] += weights[batch_idx, nth_expert, None] * expert(
-                inputs_squashed[batch_idx]
+                inputs[batch_idx]
             )
-        return results.view_as(inputs)
+        return results.view(B, T, C)
     
 
 class TransformerBlock(nn.Module):
@@ -159,7 +146,6 @@ class TransformerBlock(nn.Module):
            args.num_experts,
            args.num_experts_per_tok,
            args.n_embd,
-           args.ff_hidden_dim
         )
 
         self.attention_norm = RMSNorm(args.n_embd, eps=args.norm_eps)
@@ -232,7 +218,17 @@ class MOE(nn.Module):
 if __name__ == "__main__":
     
 
-    tokenizer = tiktoken.get_encoding("cl100k_base")
+    with open('data/tiny_shakespeare.txt', 'r', encoding='utf-8') as f:
+        text = f.read()
+
+    chars = sorted(list(set(text)))
+    vocab_size = len(chars)
+    # create a mapping from characters to integers
+    stoi = { ch:i for i,ch in enumerate(chars) }
+    itos = { i:ch for i,ch in enumerate(chars) }
+
+    encode = lambda s: [stoi[c] for c in s] # encoder: take a string, output a list of integers
+    decode = lambda l: ''.join([itos[i] for i in l]) # decoder: take a list of integers, output a string
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     args = Args(
@@ -250,7 +246,7 @@ if __name__ == "__main__":
                 num_experts=4,
                 num_experts_per_tok=1,
                 norm_eps=1e-6,
-                vocab_size=tokenizer.n_vocab,
+                vocab_size=vocab_size,
                 device = device,
                 n_layers=4
             )
@@ -258,12 +254,21 @@ if __name__ == "__main__":
 
     model = MOE(args)
 
-    model_path = './models/model_v1.pt'
-    weights = torch.load(model_path, map_location=torch.device('cpu'))
+    import time
+    #model_path = './models/model_v1.pt'
+    #weights = torch.load(model_path, map_location=torch.device('cpu'))
 
-    model.load_state_dict(weights)
+    #model.load_state_dict(weights)
 
-    toks = model.generate(torch.tensor([[1]], dtype = torch.long).to(device), max_new_tokens = 200, temperature = 30)
+    inputs = torch.randint(0, args.vocab_size, (32, 10), dtype = torch.long).to(device)
+    out = model(inputs)
+    print(sum(p.numel() for p in model.parameters())/1e6, 'M parameters')
 
-    s = tokenizer.decode(list(toks[0]))
+    
+    start_time = time.time()
+    toks = model.generate(torch.tensor([[0]], dtype=torch.long).to(device), max_new_tokens = 200, temperature = 30)
+    end_time = time.time()
+
+    print(f'Generation time: {end_time - start_time}')
+    s = decode([int(el) for el in toks[0]])
     print(s)
