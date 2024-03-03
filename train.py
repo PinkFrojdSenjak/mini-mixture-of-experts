@@ -5,8 +5,6 @@ from torch.nn import functional as F
 from torch.utils.data import Dataset
 from torch.utils.data.dataloader import DataLoader
 
-import tiktoken
-
 from model import MOE
 from utils import Args
 import time
@@ -29,29 +27,7 @@ encode = lambda s: [stoi[c] for c in s]
 decode = lambda l: ''.join([itos[i] for i in l]) 
 
 
-args = Args(
-            dataset_path=dataset_path,
-            models_dir=models_dir,
-            batch_size=16,
-            learning_rate = 1e-3,
-            max_iters = 5000,
-            eval_iters=200,
-            eval_interval=100,
-            model_save_interval=2000,
-            load_checkpoint=True,
-            test_size=0.1,
-            n_head=8,
-            n_embd=128,
-            block_size=32,
-            ff_hidden_dim=256,
-            num_experts=8,
-            num_experts_per_tok=2,
-            norm_eps=1e-6,
-            vocab_size=vocab_size,
-            device = 'cpu',
-            n_layers=4
-        )
-
+args = Args.get_default_args()
 
 
 data = encode(s)
