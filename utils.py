@@ -9,7 +9,6 @@ class Args:
     """
     A class hold all the configurable arguments. they are being read from a config file (config.ini)
     """
-
     _instance = None
 
     dataset_path: str = ''
@@ -32,6 +31,7 @@ class Args:
     vocab_size: int = 0
     device: str = ''
     n_layers: int = 0
+    use_wandb: bool = False
 
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
@@ -47,26 +47,30 @@ class Args:
             if not v:
                 continue
             # default type is string
-            conversion = lambda x : x
+            cast_fn = lambda x : x
             # if needed, convert argument to corresponding datatype
             if isinstance(getattr(Args, k), bool):
-                conversion = lambda x : bool(x)
+                cast_fn = lambda x : bool(x)
 
             elif isinstance(getattr(Args, k), int):
-                conversion = lambda x : int(x)
+                cast_fn = lambda x : int(x)
 
             elif isinstance(getattr(Args, k), float):
-                conversion = lambda x : float(x)
+                cast_fn = lambda x : float(x)
             
-            setattr(Args, k, conversion(v))
+            setattr(Args, k, cast_fn(v))
 
         # vocab size has to be infered from the data (when using of character level tokenizer)
         with open(Args.dataset_path, 'r') as f:
             text = f.read()
             setattr(Args, 'vocab_size', len(list(set(text))))
 
+        if getattr(Args, 'device') == 'auto':
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            setattr(Args, 'device', device)
+
     @classmethod
-    def get_default_args(cls):
+    def get_args(cls):
         if not cls._instance:
             cls._instance = cls() 
         return cls._instance

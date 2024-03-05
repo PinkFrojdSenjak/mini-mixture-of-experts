@@ -6,7 +6,7 @@ from utils import Args, Tokenizer, get_latest_checkoint
 
 def generate(prompt = '', args: Args = None, max_new_tokens = 200, temperature: float = 1.0, top_k: int = 40):
         
-    if args is None: args = Args.get_default_args()
+    if args is None: args = Args.get_args()
 
     tokenizer = Tokenizer(args)
     model = MOE(args)    
