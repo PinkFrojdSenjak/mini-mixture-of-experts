@@ -18,80 +18,64 @@ class RMSNorm(torch.nn.Module):
         return output * self.weight
     
 
-class CausalSelfAttention(nn.Module):
+    
 
-    def __init__(self, n_head = 8, n_embd = 128, block_size = 32, pos_dropout: float = 0.1, device: str = 'cpu') -> None:
-        """
-        n_head: number of heads in the multihead attention
-        n_embd: Dimension of the embeddings. Head dimension will be equal to n_embd // n_head
-        block_size: Number of tokens in the block, a.k.a. context length
-        """
+class GQA(nn.Module):
+    """
+    A grouped query attention module
+    """
+    def __init__(self, n_heads = 8, n_kv_heads = 2, n_embd = 128, block_size = 32, device: str = 'cpu') -> None:
         super().__init__()
-        
-        self.n_head = n_head
+
+        self.n_heads = n_heads
+        self.n_kv_heads = n_kv_heads
         self.n_embd = n_embd
         self.block_size = block_size
-        self.pos_encoder = nn.Embedding(block_size, n_embd)
         self.device = device
 
-        assert self.n_embd % self.n_head == 0
+        assert self.n_embd % self.n_heads == 0
+        assert self.n_heads % self.n_kv_heads == 0
 
-        # Query, Key, Value
-        self.wq = nn.Linear(n_embd, n_embd, bias=False)
-        self.wk = nn.Linear(n_embd, n_embd, bias=False)
-        self.wv = nn.Linear(n_embd, n_embd, bias=False)
+        self.head_dim = self.n_embd // self.n_heads
 
-        # Output
-        self.wo = nn.Linear(n_embd, n_embd, bias=False)
+        self.q_proj = nn.Linear(self.n_embd, self.n_embd, bias=False)
+        self.k_proj = nn.Linear(self.n_embd, self.n_kv_heads * self.head_dim, bias=False)
+        self.v_proj = nn.Linear(self.n_embd, self.n_kv_heads * self.head_dim, bias=False)
 
-        # Dropouts
-        self.attn_drop = nn.Dropout(0.1)
-        self.resid_drop = nn.Dropout(0.1)
+        self.o_proj = nn.Linear(self.n_embd, self.n_embd, bias=False)
 
-        # Causal mask, to avoid attending to future context
-        # buffers are non-trainable parameters
         self.register_buffer("mask", torch.tril(torch.ones(block_size, block_size))
                             .view(1, 1, block_size, block_size))
         
-
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
         """
-        x: input tensor of shape (batch_size, block_size, n_embd)
+        x: input tensor (batch_size, seqlen, n_embd)
         """
-            
-        B, T, C = x.size()
-        pos = torch.arange(0, T, dtype=torch.long, device=self.device).unsqueeze(0)
-        tok_emb = self.pos_encoder(pos)
+        batch_size, seqlen, _ = x.size()
 
-        # Query, Key, Value
-        q = self.wq(x) # (B, T, C)
-        q  = q + tok_emb
-        #q = self.pos_encoder(q)
-        q = q.view(B, T, self.n_head, C // self.n_head).permute(0, 2, 1, 3) # (B, n_head, T, C // n_head)
+        xq = self.q_proj(x)
+        xk = self.k_proj(x)
+        xv = self.v_proj(x)
 
-        k = self.wk(x) # (B, T, C)
-        k = k + tok_emb
-        k = k.view(B, T, self.n_head, C // self.n_head).permute(0, 2, 1, 3) # (B, n_head, T, C // n_head)
+        xq = xq.view(batch_size, seqlen, self.n_heads, self.head_dim)
+        xk = xk.view(batch_size, seqlen, self.n_kv_heads, self.head_dim)
+        xv = xv.view(batch_size, seqlen, self.n_kv_heads, self.head_dim)
 
-        v = self.wv(x) # (B, T, C)
-        v = v + tok_emb
-        v = v.view(B, T, self.n_head, C // self.n_head).permute(0, 2, 1, 3) # (B, n_head, T, C // n_head)
+        # repeat key and value 
+        n_repeats = self.n_heads // self.n_kv_heads
+        xk = torch.repeat_interleave(xk, repeats=n_repeats, dim=2).transpose(1,2) 
+        xv = torch.repeat_interleave(xv, repeats=n_repeats, dim=2).transpose(1,2)
 
-        # Attention
-        attn = (q @ k.transpose(-2, -1)) * (1.0 / (C ** 0.5))
-        attn = attn.masked_fill(self.mask[:, :, :T, :T] == 0, float('-inf'))
+        xq = xq.transpose(1,2)
+
+        attn = (xq @ xk.transpose(-2, -1)) * (1.0 / (self.head_dim ** 0.5))
+        attn = attn.masked_fill(self.mask[:, :, :seqlen, :seqlen] == 0, float('-inf'))
         attn = F.softmax(attn, dim=-1)
-        attn = self.attn_drop(attn)
 
-        # Context
-        y = attn @ v
-        y = y.permute(0, 2, 1, 3).contiguous().view(B, T, C)
-
-        # Output
-        y = self.wo(y)
-        y = self.resid_drop(y)
-
-        return y
+        output = torch.matmul(attn, xv)  # (bs, n_local_heads, slen, head_dim)
+        
+        output = output.transpose(1, 2).contiguous().view(batch_size, seqlen, -1)
+        return self.o_proj(output)
     
 
 class MoeLayer(nn.Module):
@@ -138,9 +122,9 @@ class MoeLayer(nn.Module):
 class TransformerBlock(nn.Module):
     def __init__(self, args: Args):
         super().__init__()
-        self.n_head = args.n_head
+        self.n_heads = args.n_heads
         self.n_embd = args.n_embd
-        self.attention = CausalSelfAttention(args.n_head, args.n_embd, args.block_size, device=args.device)
+        self.attention = GQA(args.n_heads, args.n_kv_heads, args.n_embd, args.block_size, device=args.device)
         self.feed_forward = MoeLayer(
            args.num_experts,
            args.num_experts_per_tok,
@@ -173,14 +157,19 @@ class MOE(nn.Module):
         self.block_size = args.block_size
         self.n_embd = args.n_embd
         self.tok_embeddings = nn.Embedding(args.vocab_size, args.n_embd)
+        self.pos_embeddings = nn.Embedding(args.block_size, args.n_embd)
         self.layers = nn.ModuleDict({str(i): TransformerBlock(args=args) for i in range(args.n_layers)})
         self.norm = RMSNorm(args.n_embd, args.norm_eps)
         self.output = nn.Linear(args.n_embd, args.vocab_size, bias=False)
 
     def forward(self, input_ids: torch.Tensor):
-        B, T = input_ids.shape
+        _, seqlen = input_ids.shape
 
         h = self.tok_embeddings(input_ids)
+
+        pos = torch.arange(0, seqlen, dtype=torch.long, device=self.device).unsqueeze(0) # shape (1, t)
+        pos_emb = self.pos_embeddings(pos)
+        h = h + pos_emb
 
         for layer in self.layers.values():
             h = layer(h)   
@@ -213,3 +202,19 @@ class MOE(nn.Module):
             idx = torch.cat((idx, idx_next), dim=1)
 
         return idx
+
+
+if __name__ == "__main__":
+
+    args = Args.get_args()
+
+    a = torch.ones(32, 6, args.n_embd)
+
+    #gqa = GQA(args.n_heads, args.n_kv_heads, args.n_embd, args.block_size, args.device)
+
+    model = MOE(args)
+
+    input_ids = torch.tensor([[1, 2, 3, 4]], dtype=torch.long)
+
+    out = model(input_ids)
+    print(out.shape)
