@@ -21,7 +21,8 @@ class Args:
     model_save_interval: int = 0
     load_checkpoint: bool = False
     test_size: float = 0.0
-    n_head: int = 0
+    n_heads: int = 0
+    n_kv_heads: int = 0
     n_embd: int = 0
     block_size: int = 0
     ff_hidden_dim: int = 0
