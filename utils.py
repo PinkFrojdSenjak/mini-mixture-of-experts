@@ -116,7 +116,7 @@ def get_latest_checkoint(model: nn.Module, args: Args):
     nums = [int(name[6:-3]) for name in l if name.startswith('model')] # hack to extract the iteration counts for models
     if nums:
         start_iter = max(nums)
-        weights = torch.load(f"{args.models_dir}/model-{start_iter}.pt")
+        weights = torch.load(f"{args.models_dir}/model-{start_iter}.pt", map_location=torch.device('cpu'))
         model.load_state_dict(weights)
         print(f'Loaded latest checkpoint at iteration {start_iter}')
     else:
