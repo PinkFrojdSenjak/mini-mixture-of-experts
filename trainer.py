@@ -6,14 +6,11 @@ from torch.utils.data import Dataset
 from torch.utils.data.dataloader import DataLoader
 
 from model import MOE
-from utils import Args, Tokenizer
+from utils import Args, Tokenizer, get_latest_checkoint
 import time
 import os 
 import wandb
 
-
-args = Args.get_args()
-tokenizer = Tokenizer(args)
 
 '''if args.use_wandb:
     wandb.init(entity = 'pavlepadjin', project = 'mini-mixture-of-experts')
@@ -31,19 +28,31 @@ tokenizer = Tokenizer(args)
     wconfig.vocab_size = args.vocab_size
     wconfig.device = args.device'''
 
+class Trainer:
+    def __init__(self, args: Args):
+        self.model = MOE(args)
+        self.model, start_iter = get_latest_checkoint(self.model, args)
+        
+        self.tokenizer = Tokenizer(args)
+        
+        with open(args.dataset_path, encoding='utf-8') as f:
+            text = f.read()
+
+        data = self.tokenizer.encode(text)
+        data = torch.tensor(data, dtype=torch.long)
+
+        train_len = int((1 - args.test_size) * len(data))
+
+        self.train_data = data[:train_len]
+        self.test_data = data[train_len:]
+
+    def train(self):
+        # TODO: Use dataloader with torch RandomSampler
+        pass
+
 
 
 def train(model: nn.Module, args: Args):
-
-    with open(args.dataset_path, encoding='utf-8') as f:
-        text = f.read()
-
-    data = tokenizer.encode(text)
-    data = torch.tensor(data, dtype=torch.long)
-
-    n = int((1 - args.test_size) * len(data))
-    train_data = data[:n]
-    val_data = data[n:]
 
 
     def get_batch(split: str):
@@ -131,3 +140,7 @@ def train(model: nn.Module, args: Args):
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
+
+
+if __name__ == "__main__":
+
